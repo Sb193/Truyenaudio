@@ -1,4 +1,8 @@
-# TruyenAudio Android
+# TruyenAudio Android 2.0
+
+**Bản hiện tại ưu tiên offline:** mở vào thư viện trên máy, không cần đăng nhập. Xem [hướng dẫn offline mới](OFFLINE.md) để tải toàn bộ truyện, nghe độc lập server và quản lý bản lưu.
+
+## Nền tảng Android và hướng dẫn build
 
 Ứng dụng Android native Kotlin + Jetpack Compose, ViewModel + Repository. Android 8.0 trở lên (minSdk 26), target/compile SDK 35, Java 17, AGP 8.8.0, Gradle 8.10.2.
 
@@ -46,7 +50,7 @@ Base URL duy nhất nằm tại `core/constants/AppConstants.kt`: `https://truye
 
 OkHttp native + Retrofit, không WebView, không thêm Origin, không bật HTTP logging. CookieJar chỉ chấp nhận cookie Secure đúng host và chỉ gửi qua HTTPS đúng host; cookie/tiến độ lưu trong EncryptedSharedPreferences với khóa Android Keystore. Không lưu mật khẩu. Tắt redirect HTTP để tránh chuyển request có thông tin đăng nhập sang host khác. Không lưu cache nội dung HTTP trên đĩa. created_at giữ ở JsonElement, không giả định định dạng.
 
-401 từ API được bảo vệ hoặc user=null sẽ xóa phiên/tiến độ, dừng nghe và đưa về đăng nhập. Mất mạng giữ phiên. 429 chỉ hiển thị lỗi chờ, không tự lặp đăng nhập. Đăng xuất dừng dịch vụ và xóa dữ liệu riêng tư cục bộ kể cả khi gọi logout thất bại do mạng; khi đó cookie còn hiệu lực phía server đến khi hết hạn vì không có kết nối để thu hồi.
+401 từ API được bảo vệ hoặc user=null sẽ xóa phiên/tiến độ SERVER và dừng nghe SERVER. Truyện và phiên nghe LOCAL vẫn được giữ. Mất mạng giữ phiên. 429 chỉ hiển thị lỗi chờ, không tự lặp đăng nhập. Đăng xuất dừng nghe server và xóa dữ liệu phiên server, giữ thư viện/tiến độ local kể cả khi gọi logout thất bại do mạng; khi đó cookie còn hiệu lực phía server đến khi hết hạn vì không có kết nối để thu hồi.
 
 ## Nghe nền và tiến độ
 

@@ -70,7 +70,7 @@ class MainActivity : ComponentActivity() {
                     config = plan
                 }
                 BackHandler(enabled = state.detail != null) { model.back() }
-                LaunchedEffect(state.source, state.user?.id) { if (state.source == ContentSource.SERVER && state.user == null) config = null }
+                LaunchedEffect(state.source, state.user?.id) { if (state.source == ContentSource.SERVER && state.user == null) { config = null; downloadConfirm = null } }
                 LaunchedEffect(playback.status) { model.reloadProgress() }
                 Surface(Modifier.fillMaxSize()) {
                     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {

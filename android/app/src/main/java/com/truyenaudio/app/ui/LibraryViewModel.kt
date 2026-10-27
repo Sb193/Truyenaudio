@@ -175,7 +175,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             app.stopService(Intent(app, TtsPlaybackService::class.java)); PlaybackStore.mutable.value = PlaybackSnapshot()
         }
         execute { try { repository.logout() } finally {
-            mutable.update { it.copy(checking = false, user = null, stories = emptyList(), detail = null, chapter = null, progress = null) }
+            mutable.update { if (it.source == ContentSource.LOCAL) it.copy(user = null) else it.copy(checking = false, user = null, stories = emptyList(), detail = null, chapter = null, progress = null) }
         } }
     }
 }
