@@ -36,7 +36,9 @@ jobs:
 
       - name: Build debug APK
         working-directory: android
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: |
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK cho điện thoại
         uses: actions/upload-artifact@v4

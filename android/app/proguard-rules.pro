@@ -1,0 +1,2 @@
+-keepattributes Signature,*Annotation*
+-keep class com.truyenaudio.app.data.** { *; }

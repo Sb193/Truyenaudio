@@ -1,83 +1,50 @@
 package com.truyenaudio.app.core.network
 
-import android.content.Context
 import android.content.SharedPreferences
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 import com.truyenaudio.app.core.constants.AppConstants
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.HttpUrl
-import java.util.concurrent.ConcurrentHashMap
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.json.JSONArray
 
-class SecureCookieJar(context: Context) : CookieJar {
-    private val masterKey = MasterKey.Builder(context)
-        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .build()
-
-    private val encryptedPrefs: SharedPreferences = EncryptedSharedPreferences.create(
-        context,
-        "truyen_audio_secure_session",
-        masterKey,
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-    )
-
-    private val cookieStore = ConcurrentHashMap<String, MutableMap<String, Cookie>>()
-
+class SecureCookieJar(private val preferences: SharedPreferences) : CookieJar {
+    private val origin = AppConstants.BASE_URL.toHttpUrl()
+    private val cookies = linkedMapOf<String, Cookie>()
     init {
-        loadCookiesFromStorage()
+        runCatching {
+            val values = JSONArray(preferences.getString("cookies", "[]"))
+            for (i in 0 until values.length()) {
+                Cookie.parse(origin, values.getString(i))?.let {
+                    if (eligible(it) && it.expiresAt > System.currentTimeMillis()) cookies[key(it)] = it
+                }
+            }
+        }.onFailure { preferences.edit().remove("cookies").apply() }
     }
-
-    @Synchronized
-    override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-        if (!isTargetHost(url)) return
-        val host = url.host
-        val currentHostCookies = cookieStore.getOrPut(host) { mutableMapOf() }
-        var changed = false
-        val now = System.currentTimeMillis()
-
+    private fun key(cookie: Cookie) = "${cookie.name}|${cookie.path}"
+    private fun target(url: HttpUrl) = url.isHttps && url.host == AppConstants.BACKEND_HOST
+    private fun eligible(cookie: Cookie) = cookie.secure && cookie.domain == AppConstants.BACKEND_HOST
+    @Synchronized override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+        if (!target(url)) return
         for (cookie in cookies) {
-            if (cookie.expiresAt <= now) {
-                if (currentHostCookies.remove(cookie.name) != null) changed = true
-            } else {
-                currentHostCookies[cookie.name] = cookie
-                changed = true
-            }
+            if (!eligible(cookie)) continue
+            if (cookie.expiresAt <= System.currentTimeMillis()) this.cookies.remove(key(cookie))
+            else this.cookies[key(cookie)] = cookie
         }
-        if (changed) persistHostCookies(host, currentHostCookies.values)
+        persist()
     }
-
-    @Synchronized
-    override fun loadForRequest(url: HttpUrl): List<Cookie> {
-        if (!isTargetHost(url)) return emptyList()
-        val host = url.host
-        val hostCookies = cookieStore[host] ?: return emptyList()
-        val now = System.currentTimeMillis()
-        val validCookies = mutableListOf<Cookie>()
-        for (cookie in hostCookies.values) {
-            if (cookie.expiresAt > now && cookie.matches(url)) {
-                validCookies.add(cookie)
-            }
-        }
-        return validCookies
+    @Synchronized override fun loadForRequest(url: HttpUrl): List<Cookie> {
+        if (!target(url)) return emptyList()
+        return cookies.values.filter { it.expiresAt > System.currentTimeMillis() && it.matches(url) }
     }
-
-    fun hasActiveSession(): Boolean {
-        val hostCookies = cookieStore[AppConstants.BACKEND_HOST] ?: return false
-        val sessionCookie = hostCookies[AppConstants.SESSION_COOKIE_NAME] ?: return false
-        return sessionCookie.expiresAt > System.currentTimeMillis()
+    @Synchronized fun hasActiveSession() = loadForRequest(origin).any { it.name == AppConstants.SESSION_COOKIE_NAME }
+    @Synchronized fun clearSession() {
+        cookies.clear()
+        preferences.edit().remove("cookies").commit()
     }
-
-    @Synchronized
-    fun clearSession() {
-        cookieStore.clear()
-        encryptedPrefs.edit().clear().apply()
+    private fun persist() {
+        val array = JSONArray()
+        cookies.values.filter { it.persistent && it.expiresAt > System.currentTimeMillis() }.forEach { array.put(it.toString()) }
+        preferences.edit().putString("cookies", array.toString()).commit()
     }
-
-    private fun isTargetHost(url: HttpUrl): Boolean =
-        url.isHttps && url.host.equals(AppConstants.BACKEND_HOST, ignoreCase = true)
-
-    private fun loadCookiesFromStorage() { /* Deserializes from EncryptedSharedPreferences */ }
-    private fun persistHostCookies(host: String, cookies: Collection<Cookie>) { /* Encrypted save */ }
 }
