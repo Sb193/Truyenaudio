@@ -60,6 +60,7 @@ class TtsPlaybackService : Service() {
     private var requestGeneration = 0
     private var lastSavedAt = 0L
     private var chapterNumbers = emptyList<Int>()
+    private var utteranceStart = 0
     private val snapshot get() = PlaybackStore.mutable.value
     private val noisy = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -104,7 +105,7 @@ class TtsPlaybackService : Service() {
                 STOP -> stopReading()
                 NEXT -> skip(1)
                 PREV -> skip(-1)
-                Intent.ACTION_MEDIA_BUTTON -> androidx.media.session.MediaButtonReceiver.handleIntent(media, intent)
+                Intent.ACTION_MEDIA_BUTTON -> { promote(); androidx.media.session.MediaButtonReceiver.handleIntent(media, intent) }
                 else -> stopReading()
             }
         } catch (error: Exception) { fail(error.message ?: "Không thể bắt đầu nghe. Hãy mở ứng dụng và thử lại.") }
@@ -245,7 +246,7 @@ class TtsPlaybackService : Service() {
             override fun onError(utteranceId: String?, errorCode: Int) = dispatch(utteranceId) { fail("Lỗi giọng đọc ($errorCode). Kiểm tra engine hoặc mạng rồi tiếp tục.") }
             override fun onRangeStart(utteranceId: String?, start: Int, end: Int, frame: Int) = dispatch(utteranceId) {
                 val part = parts.getOrNull(cursor.index) ?: return@dispatch
-                plan = plan?.copy(offset = (part.start + start).coerceIn(part.start, part.end))
+                plan = plan?.copy(offset = (utteranceStart + start).coerceIn(part.start, part.end))
                 if (SystemClock.elapsedRealtime() - lastSavedAt > 1500) saveProgress()
             }
         })
@@ -265,13 +266,21 @@ class TtsPlaybackService : Service() {
     }
     private fun speakCurrent() {
         val part = parts.getOrNull(cursor.index) ?: return
-        plan = plan?.copy(offset = part.start)
+        var offset = plan?.offset?.takeIf { it in part.start until part.end } ?: part.start
+        val content = chapter?.content ?: return
+        if (offset > part.start && Character.isLowSurrogate(content[offset]) && Character.isHighSurrogate(content[offset - 1])) offset--
+        utteranceStart = offset
+        plan = plan?.copy(offset = offset)
         saveProgress()
         publish(PlaybackStatus.PLAYING, "Đang nghe")
-        if (tts?.speak(part.text, TextToSpeech.QUEUE_FLUSH, null, cursor.id()) == TextToSpeech.ERROR) fail("Không thể đưa nội dung vào giọng đọc")
+        if (tts?.speak(content.substring(offset, part.end), TextToSpeech.QUEUE_FLUSH, null, cursor.id()) == TextToSpeech.ERROR) fail("Không thể đưa nội dung vào giọng đọc")
     }
     private fun resume() {
         if (wantPlay) return
+        if (plan == null) {
+            repository.store.progress()?.plan?.let { start(it) } ?: stopReading()
+            return
+        }
         wantPlay = true
         if (parts.isEmpty()) plan?.let { loadChapter(it.chapter, it.offset) }
         else {
@@ -300,7 +309,7 @@ class TtsPlaybackService : Service() {
     private fun saveProgress() {
         val current = plan ?: return
         if (sessionVersion == repository.sessionVersion.value) {
-            repository.store.save(Progress(current, chapter?.title.orEmpty()))
+            repository.saveProgress(sessionVersion, Progress(current, chapter?.title.orEmpty()))
             lastSavedAt = SystemClock.elapsedRealtime()
         }
     }

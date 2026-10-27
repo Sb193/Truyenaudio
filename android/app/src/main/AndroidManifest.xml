@@ -36,6 +36,7 @@
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>
 
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
                 <action android:name="com.truyenaudio.app.ACTION_PLAY" />
                 <action android:name="com.truyenaudio.app.ACTION_PAUSE" />
                 <action android:name="com.truyenaudio.app.ACTION_STOP" />

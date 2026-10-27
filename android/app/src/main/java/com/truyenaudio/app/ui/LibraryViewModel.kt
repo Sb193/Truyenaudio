@@ -23,6 +23,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val mutable = MutableStateFlow(LibraryState())
     val state = mutable.asStateFlow()
     private var operation: Job? = null
+    private var operationVersion = 0
     init {
         viewModelScope.launch { repository.sessionVersion.drop(1).collect {
             operation?.cancel()
@@ -33,13 +34,15 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         checkSession()
     }
     private fun execute(block: suspend () -> Unit) {
+        operationVersion++
+        val version = operationVersion
         operation?.cancel()
         operation = viewModelScope.launch {
             mutable.update { it.copy(busy = true, error = "") }
             try { block() }
             catch (cancel: CancellationException) { throw cancel }
             catch (error: Exception) { mutable.update { it.copy(error = error.message ?: "Không thể thực hiện yêu cầu") } }
-            finally { mutable.update { it.copy(busy = false) } }
+            finally { if (version == operationVersion) mutable.update { it.copy(busy = false) } }
         }
     }
     fun checkSession() = execute {

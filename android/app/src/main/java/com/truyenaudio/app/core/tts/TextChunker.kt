@@ -20,8 +20,9 @@ object TextChunker {
                 for (i in start until end) {
                     if (content[i].isWhitespace()) {
                         space = i + 1
-                        val preceding = content.substring(start, i).trimEnd('"', '\'', '”', '’')
-                        if (content[i] == '\n' || preceding.lastOrNull() in listOf('.', '?', '!', '…')) sentence = i + 1
+                        var before = i - 1
+                        while (before >= start && content[before] in listOf('"', '\'', '”', '’')) before--
+                        if (content[i] == '\n' || (before >= start && content[before] in listOf('.', '?', '!', '…'))) sentence = i + 1
                     }
                 }
                 end = when {

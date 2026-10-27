@@ -37,6 +37,9 @@ class Repository(val store: SecureStore) {
     private val api = Retrofit.Builder().baseUrl(AppConstants.BASE_URL).client(client)
         .addConverterFactory(GsonConverterFactory.create()).build().create(BackendApi::class.java)
 
+    @Synchronized fun saveProgress(version: Int, progress: Progress) {
+        if (version == epoch) store.save(progress)
+    }
     @Synchronized fun clearSession() {
         epoch++
         client.dispatcher.cancelAll()
@@ -61,6 +64,7 @@ class Repository(val store: SecureStore) {
         }
     }
     suspend fun login(username: String, password: String): User = request(false) {
+        store.cookies.beginLogin()
         val user = api.login(LoginBody(username, password)).user ?: throw IOException("Phản hồi đăng nhập không hợp lệ")
         if (!store.cookies.hasActiveSession()) throw IOException("Máy chủ không cấp cookie phiên hợp lệ")
         user
