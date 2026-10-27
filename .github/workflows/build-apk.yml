@@ -58,3 +58,50 @@ jobs:
             android/app/build/reports/lint-results-debug.*
           if-no-files-found: ignore
           retention-days: 7
+
+  ui-preview:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[ui-preview]')
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Enable Android emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Capture native UI previews
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: |
+            adb shell wm size 1080x2400
+            adb shell wm density 480
+            chmod +x android/gradlew
+            cd android && ./gradlew connectedDebugAndroidTest --no-daemon --stacktrace
+            mkdir -p ui-previews
+            adb pull /sdcard/Android/data/com.truyenaudio.app.debug/files/ui-previews ui-previews
+      - name: Upload native UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TruyenAudio-ui-previews
+          path: |
+            ui-previews/
+            android/ui-previews/
+            android/app/build/reports/androidTests/
+          if-no-files-found: ignore
+          retention-days: 7
