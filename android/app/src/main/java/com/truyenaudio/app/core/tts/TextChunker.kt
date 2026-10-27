@@ -52,7 +52,7 @@ object TextChunker {
     }
 
     private fun splitParagraphIntoSentences(paragraph: String): List<String> {
-        val sentenceRegex = Regex("(?<=[.?!…]['\"”’]?)\s+")
+        val sentenceRegex = Regex("(?<=[.?!…]['\"”’]?)\\s+")
         return paragraph.split(sentenceRegex).map { it.trim() }.filter { it.isNotEmpty() }
     }
 
