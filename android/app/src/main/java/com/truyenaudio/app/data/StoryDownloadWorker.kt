@@ -24,7 +24,7 @@ class StoryDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
                 .setInputData(workDataOf("slug" to story.slug, "title" to story.title.take(500)))
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 20, TimeUnit.SECONDS)
-                .addTag(TAG).addTag("slug:${story.slug}").build()
+                .addTag(TAG).addTag("slug:${story.slug}").addTag("created:${System.currentTimeMillis()}").build()
             WorkManager.getInstance(context).enqueueUniqueWork(uniqueName(story.slug), ExistingWorkPolicy.KEEP, work)
         }
     }
@@ -59,19 +59,18 @@ class StoryDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
             require(chapters.isNotEmpty()) { "Truyện chưa có chương để tải" }
             total = chapters.size
             app.localLibrary.putStory(detail.story.copy(chapterCount = total))
-            for (chapter in chapters) {
-                currentCoroutineContext().ensureActive()
-                if (version != repository.sessionVersion.value) return Result.failure(progress(done, total, "Phiên đăng nhập đã thay đổi. Các chương đã tải vẫn được giữ."))
-                if (!app.localLibrary.hasChapter(slug, chapter.number)) {
-                    val content = repository.chapter(slug, chapter.number)
-                    currentCoroutineContext().ensureActive()
-                    require(content.slug == slug && content.number == chapter.number) { "Máy chủ trả về chương không khớp" }
-                    app.localLibrary.putChapter(content)
-                }
-                done++
-                setProgress(progress(done, total))
-                if (done == total || done % 5 == 0) setForeground(foreground(done, total))
-            }
+            WholeStoryTransfer.run(slug, chapters,
+                exists = { number ->
+                    if (version != repository.sessionVersion.value) throw ApiError(401, "Phiên đã thay đổi. Các chương đã tải vẫn được giữ.")
+                    app.localLibrary.hasChapter(slug, number)
+                },
+                read = { number -> repository.chapter(slug, number) },
+                save = { content -> app.localLibrary.putChapter(content) },
+                report = { count, expected ->
+                    done = count
+                    setProgress(progress(done, expected))
+                    if (done == expected || done % 5 == 0) setForeground(foreground(done, expected))
+                })
             return Result.success(progress(done, total, "Đã tải toàn bộ truyện. Có thể nghe không cần đăng nhập."))
         } catch (cancel: CancellationException) { throw cancel }
         catch (error: ApiError) {

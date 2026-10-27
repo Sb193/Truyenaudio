@@ -53,7 +53,7 @@ class LocalLibrary(context: Context) : ChapterSource {
         helper.readableDatabase.rawQuery("SELECT 1 FROM chapters WHERE slug=? AND number=?", arrayOf(slug, number.toString())).use { it.moveToFirst() }
     }
     suspend fun putStory(story: Story) = withContext(Dispatchers.IO) {
-        removed.remove(story.slug)
+        if (story.slug in removed) throw kotlinx.coroutines.CancellationException("Truyện đã được xóa khỏi máy")
         val values = ContentValues().apply { put("slug", story.slug); put("metadata", gson.toJson(story)); put("saved_at", System.currentTimeMillis()) }
         // REPLACE would cascade-delete existing chapters, so update first and insert only when absent.
         val db = helper.writableDatabase
@@ -65,6 +65,7 @@ class LocalLibrary(context: Context) : ChapterSource {
         revision.update { it + 1 }
     }
     suspend fun putChapter(content: ChapterContentResponse) = withContext(Dispatchers.IO) {
+        if (content.slug in removed) throw kotlinx.coroutines.CancellationException("Truyện đã được xóa khỏi máy")
         val values = ContentValues().apply {
             put("slug", content.slug); put("number", content.number); put("title", content.title); put("body", gson.toJson(content))
         }
@@ -74,11 +75,12 @@ class LocalLibrary(context: Context) : ChapterSource {
         revision.update { it + 1 }
     }
     suspend fun delete(slug: String) = withContext(Dispatchers.IO) {
-        removed.add(slug)
+        synchronized(this@LocalLibrary) { removed.add(slug) }
         helper.writableDatabase.delete("stories", "slug=?", arrayOf(slug))
         if (progress()?.plan?.slug == slug) preferences.edit().remove("progress").commit()
         revision.update { it + 1 }
     }
     fun progress(): Progress? = runCatching { preferences.getString("progress", null)?.let { gson.fromJson(it, Progress::class.java) } }.getOrNull()
-    fun saveProgress(progress: Progress) { if (progress.plan.slug in removed) return; preferences.edit().putString("progress", gson.toJson(progress)).apply() }
+    @Synchronized fun allowDownload(slug: String) { removed.remove(slug) }
+    @Synchronized fun saveProgress(progress: Progress) { if (progress.plan.slug in removed) return; preferences.edit().putString("progress", gson.toJson(progress)).apply() }
 }

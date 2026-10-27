@@ -54,6 +54,11 @@ class LocalLibraryTest {
             assertFalse(library.hasChapter(a.slug, 1))
             assertTrue(library.hasChapter(b.slug, 1))
             assertNull(library.progress())
+            try { library.putStory(a); fail("Tác vụ cũ không được khôi phục truyện đã xóa") }
+            catch (expected: kotlinx.coroutines.CancellationException) { assertFalse(library.hasChapter(a.slug, 1)) }
+            library.allowDownload(a.slug)
+            library.putStory(a); library.putChapter(chapter(a, 1))
+            assertTrue(library.hasChapter(a.slug, 1))
         } finally { library.delete(a.slug); library.delete(b.slug) }
     }
     @Test fun actualAppStartsAtLocalLibraryWithoutLogin() {

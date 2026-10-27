@@ -14,7 +14,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
 data class DownloadUi(val id: UUID, val slug: String, val title: String, val done: Int, val total: Int,
-    val active: Boolean, val waiting: Boolean, val error: String)
+    val active: Boolean, val waiting: Boolean, val error: String, val createdAt: Long = 0)
 
 data class LibraryState(
     val checking: Boolean = false, val user: User? = null, val busy: Boolean = false,
@@ -59,9 +59,10 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                     DownloadUi(info.id, info.tags.firstOrNull { it.startsWith("slug:") }?.removePrefix("slug:").orEmpty(),
                         data.getString("title").orEmpty(), data.getInt("done", 0), data.getInt("total", 0),
                         !info.state.isFinished, info.state == WorkInfo.State.ENQUEUED,
-                        if (info.state == WorkInfo.State.FAILED) data.getString("message") ?: "Không tải được truyện" else "")
+                        if (info.state == WorkInfo.State.FAILED) data.getString("message") ?: "Không tải được truyện" else "",
+                        info.tags.firstOrNull { it.startsWith("created:") }?.removePrefix("created:")?.toLongOrNull() ?: 0)
                 }
-                mutable.update { it.copy(downloads = downloads) }
+                mutable.update { it.copy(downloads = downloads.sortedWith(compareByDescending<DownloadUi> { download -> download.active }.thenByDescending { download -> download.createdAt }).distinctBy { download -> download.slug }) }
             }
         }
     }
@@ -158,11 +159,12 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     fun reloadProgress() { mutable.update { it.copy(progress = if (it.source == ContentSource.LOCAL) local.progress() else repository.store.progress()) } }
     fun download(story: Story) {
         if (state.value.user == null || state.value.source != ContentSource.SERVER) return
+        local.allowDownload(story.slug)
         StoryDownloadWorker.enqueue(app, story)
     }
     fun cancelDownload(id: UUID) { work.cancelWorkById(id) }
     fun deleteLocal(slug: String) = execute {
-        work.cancelUniqueWork(StoryDownloadWorker.uniqueName(slug))
+        withContext(Dispatchers.IO) { work.cancelUniqueWork(StoryDownloadWorker.uniqueName(slug)).result.get() }
         if (PlaybackStore.state.value.plan?.let { it.source == ContentSource.LOCAL && it.slug == slug } == true) {
             app.stopService(Intent(app, TtsPlaybackService::class.java)); PlaybackStore.mutable.value = PlaybackSnapshot()
         }
