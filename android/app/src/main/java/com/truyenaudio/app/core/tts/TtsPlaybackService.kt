@@ -114,7 +114,7 @@ class TtsPlaybackService : Service() {
 
     private fun start(value: ListenPlan) {
         value.validate()
-        require(repository.store.cookies.hasActiveSession()) { "Vui lòng đăng nhập lại" }
+        if (!repository.store.cookies.hasActiveSession()) { repository.clearSession(); fail("Vui lòng đăng nhập lại"); return }
         invalidate()
         prefetch?.cancel(); prefetch = null
         plan = value
@@ -347,7 +347,7 @@ class TtsPlaybackService : Service() {
     private fun notification(): Notification {
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         return NotificationCompat.Builder(this, AppConstants.CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_media_play).setContentTitle(plan?.storyTitle ?: "TruyenAudio")
+            .setSmallIcon(com.truyenaudio.app.R.drawable.ic_notification).setContentTitle(plan?.storyTitle ?: "TruyenAudio")
             .setContentText("${chapter?.title ?: "Đang chuẩn bị"} · ${snapshot.message}")
             .setContentIntent(open).setOnlyAlertOnce(true).setOngoing(wantPlay)
             .setDeleteIntent(control(STOP, 9))
