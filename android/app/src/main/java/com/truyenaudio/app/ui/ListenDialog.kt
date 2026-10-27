@@ -25,6 +25,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.truyenaudio.app.data.ListenPlan
+import com.truyenaudio.app.data.ContentSource
 
 @Composable
 fun ListenDialog(initial: ListenPlan, numbers: List<Int>?, dismiss: () -> Unit, play: (ListenPlan) -> Unit) {
@@ -53,7 +54,7 @@ fun ListenDialog(initial: ListenPlan, numbers: List<Int>?, dismiss: () -> Unit, 
                 if (status != TextToSpeech.SUCCESS) { engineError = "Không tải được engine. Hãy cài giọng TTS trong cài đặt máy."; voices = emptyList() }
                 else {
                     engines = instance?.engines.orEmpty()
-                    voices = instance?.voices.orEmpty().sortedWith(compareBy<Voice> { it.locale.language != "vi" }.thenBy { it.isNetworkConnectionRequired }.thenBy { it.name })
+                    voices = instance?.voices.orEmpty().filter { initial.source != ContentSource.LOCAL || !it.isNetworkConnectionRequired }.sortedWith(compareBy<Voice> { it.locale.language != "vi" }.thenBy { it.isNetworkConnectionRequired }.thenBy { it.name })
                     if (voices.none { it.name == selected }) selected = voices.firstOrNull { it.locale.language == "vi" && !it.isNetworkConnectionRequired }?.name
                         ?: voices.firstOrNull { it.locale.language == "vi" }?.name.orEmpty()
                     accepted = false
@@ -103,6 +104,7 @@ fun ListenDialog(initial: ListenPlan, numbers: List<Int>?, dismiss: () -> Unit, 
                 if (numbers == null) Text("Đang tải mục lục. Nếu mất mạng, đóng và thử lại.", style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(4.dp)); HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 SheetLabel(Icons.Rounded.RecordVoiceOver, "Giọng kể chuyện")
+                if (initial.source == ContentSource.LOCAL) Text("Chế độ trên máy chỉ dùng giọng offline. Nếu chưa có giọng, tải giọng tiếng Việt trong cài đặt hệ thống.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Choice("Công cụ giọng đọc", engines.find { it.name == engine }?.label ?: "Mặc định của điện thoại", listOf("" to "Mặc định của điện thoại") + engines.map { it.name to it.label }) { engine = it; selected = "" }
                 if (loading) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp); Text("Đang tìm giọng đọc…", style = MaterialTheme.typography.bodySmall)

@@ -22,7 +22,7 @@ interface BackendApi {
 
 class ApiError(val status: Int, message: String) : IOException(message)
 
-class Repository(val store: SecureStore) {
+class Repository(val store: SecureStore) : ChapterSource {
     val sessionVersion = MutableStateFlow(0)
     @Volatile private var epoch = 0
     private val client = OkHttpClient.Builder().cookieJar(store.cookies)
@@ -72,6 +72,6 @@ class Repository(val store: SecureStore) {
     suspend fun me(): User? = request { api.me().user }.also { if (it == null) clearSession() }
     suspend fun logout() { try { request { api.logout() } } finally { clearSession() } }
     suspend fun stories(page: Int) = request { api.stories(page) }
-    suspend fun detail(slug: String) = request { api.detail(slug) }
-    suspend fun chapter(slug: String, number: Int) = request { api.chapter(slug, number) }
+    override suspend fun detail(slug: String) = request { api.detail(slug) }
+    override suspend fun chapter(slug: String, number: Int) = request { api.chapter(slug, number) }
 }

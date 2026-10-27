@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.dp
 import com.truyenaudio.app.data.*
 
 @Composable
-fun LibraryScreen(state: LibraryState, refresh: () -> Unit, more: () -> Unit, open: (String) -> Unit, listen: (ListenPlan) -> Unit) {
+fun LibraryScreen(state: LibraryState, refresh: () -> Unit, more: () -> Unit, open: (String) -> Unit, listen: (ListenPlan) -> Unit, browse: () -> Unit = {}) {
     var search by remember { mutableStateOf("") }
     val filtered = state.stories.filter { it.title.contains(search, ignoreCase = true) }
     PullToRefreshBox(isRefreshing = state.busy && state.page > 0, onRefresh = refresh, modifier = Modifier.fillMaxSize()) {
@@ -38,7 +38,7 @@ fun LibraryScreen(state: LibraryState, refresh: () -> Unit, more: () -> Unit, op
                 Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("Xin chào, ${state.user?.username.orEmpty()}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(if (state.source == ContentSource.LOCAL) "Không cần mạng · Không cần đăng nhập" else "Xin chào, ${state.user?.username.orEmpty()}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("Hôm nay bạn\nmuốn nghe gì?", style = MaterialTheme.typography.headlineLarge)
                         }
                         Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
@@ -46,7 +46,7 @@ fun LibraryScreen(state: LibraryState, refresh: () -> Unit, more: () -> Unit, op
                         }
                     }
                     OutlinedTextField(search, { search = it }, modifier = Modifier.fillMaxWidth(), singleLine = true,
-                        placeholder = { Text("Tìm trong các truyện đã tải", style = MaterialTheme.typography.bodyMedium) },
+                        placeholder = { Text(if (state.source == ContentSource.LOCAL) "Tìm truyện trên máy" else "Tìm trong danh sách đã tải", style = MaterialTheme.typography.bodyMedium) },
                         leadingIcon = { Icon(Icons.Rounded.Search, null) },
                         trailingIcon = { if (search.isNotEmpty()) IconButton(onClick = { search = "" }) { Icon(Icons.Rounded.Close, "Xóa tìm kiếm") } },
                         shape = RoundedCornerShape(18.dp), colors = OutlinedTextFieldDefaults.colors(
@@ -54,10 +54,10 @@ fun LibraryScreen(state: LibraryState, refresh: () -> Unit, more: () -> Unit, op
                             unfocusedContainerColor = MaterialTheme.colorScheme.surface, focusedContainerColor = MaterialTheme.colorScheme.surface))
                     if (search.isBlank()) {
                         if (state.progress != null) ContinueCard(state.progress, listen, open)
-                        else DiscoveryBanner()
+                        else if (state.stories.isNotEmpty() || state.source == ContentSource.SERVER) DiscoveryBanner()
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (search.isBlank()) "Khám phá thư viện" else "Kết quả đã tải", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                        Text(if (search.isNotBlank()) "Kết quả tìm kiếm" else if (state.source == ContentSource.LOCAL) "Truyện trên máy" else "Khám phá thư viện", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
                         Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant) {
                             Text("${state.stories.size} truyện", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
                         }
@@ -84,7 +84,10 @@ fun LibraryScreen(state: LibraryState, refresh: () -> Unit, more: () -> Unit, op
             }
             if (filtered.isEmpty() && !state.busy) item(span = { GridItemSpan(maxLineSpan) }) {
                 EmptyMessage(Icons.Rounded.SearchOff, if (search.isBlank()) "Thư viện đang trống" else "Chưa tìm thấy truyện",
-                    if (search.isBlank()) "Kéo xuống để tải lại thư viện của bạn." else "Thử từ khóa khác hoặc tải thêm truyện bên dưới.")
+                    if (search.isBlank() && state.source == ContentSource.LOCAL) "Tải truyện một lần, sau đó đọc và nghe bất cứ lúc nào." else if (search.isBlank()) "Kéo xuống để tải lại thư viện của bạn." else "Thử từ khóa khác hoặc tải thêm truyện bên dưới.",
+                    action = if (state.source == ContentSource.LOCAL && search.isBlank()) ({
+                        Button(onClick = browse) { Icon(Icons.Rounded.CloudDownload, null); Spacer(Modifier.width(8.dp)); Text("Tải truyện về máy") }
+                    }) else null)
             }
             item(span = { GridItemSpan(maxLineSpan) }) {
                 if (state.more) OutlinedButton(onClick = more, enabled = !state.busy, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(16.dp)) {
@@ -143,10 +146,12 @@ private fun ContinueCard(progress: Progress, listen: (ListenPlan) -> Unit, open:
 }
 
 @Composable
-fun DetailScreen(detail: StoryDetail, busy: Boolean, read: (Int) -> Unit, listen: (ListenPlan) -> Unit) {
+fun DetailScreen(detail: StoryDetail, busy: Boolean, read: (Int) -> Unit, listen: (ListenPlan) -> Unit,
+    source: ContentSource = ContentSource.SERVER, download: (() -> Unit)? = null, delete: (() -> Unit)? = null,
+    savedCount: Int = 0, isDownloading: Boolean = false) {
     var search by remember(detail.story.slug) { mutableStateOf("") }
     val numbers = detail.chapters.map { it.number }.sorted()
-    fun plan(number: Int) = ListenPlan(detail.story.slug, detail.story.title, numbers.first(), numbers.last(), number)
+    fun plan(number: Int) = ListenPlan(detail.story.slug, detail.story.title, numbers.first(), numbers.last(), number, source = source)
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
@@ -169,6 +174,23 @@ fun DetailScreen(detail: StoryDetail, busy: Boolean, read: (Int) -> Unit, listen
                 OutlinedButton(onClick = { if (numbers.isNotEmpty()) read(numbers.first()) }, enabled = numbers.isNotEmpty() && !busy,
                     modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
                     Icon(Icons.AutoMirrored.Rounded.MenuBook, null, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("Đọc truyện")
+                }
+            }
+            if (source == ContentSource.SERVER && download != null) {
+                Spacer(Modifier.height(12.dp))
+                FilledTonalButton(onClick = download, enabled = !isDownloading && detail.chapters.isNotEmpty() && savedCount < detail.chapters.size,
+                    shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                    Icon(if (savedCount >= detail.chapters.size) Icons.Rounded.CloudDone else Icons.Rounded.Download, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (isDownloading) "Đang tải toàn bộ truyện…" else if (savedCount >= detail.chapters.size) "Đã có đủ chương trên máy" else "Tải toàn bộ truyện về máy")
+                }
+                if (savedCount > 0) Text("Đã lưu $savedCount/${detail.chapters.size} chương · Đăng xuất vẫn giữ truyện", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (source == ContentSource.LOCAL) {
+                Spacer(Modifier.height(14.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    MetaLabel(Icons.Rounded.OfflinePin, "${detail.chapters.size} chương có sẵn · Nghe offline", Modifier.weight(1f))
+                    if (delete != null) IconButton(onClick = delete) { Icon(Icons.Rounded.DeleteOutline, "Xóa bản trên máy", tint = MaterialTheme.colorScheme.error) }
                 }
             }
             if (!detail.story.description.isNullOrBlank()) {

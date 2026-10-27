@@ -24,7 +24,8 @@ data class ListenPlan(
     val slug: String = "", val storyTitle: String = "", val first: Int = 1,
     val last: Int = 1, val chapter: Int = 1, val offset: Int = 0,
     val engine: String = "", val voice: String = "", val speed: Float = 1f,
-    val sleepMinutes: Int = 0, val networkVoiceAccepted: Boolean = false
+    val sleepMinutes: Int = 0, val networkVoiceAccepted: Boolean = false,
+    val source: ContentSource = ContentSource.SERVER
 ) {
     fun validate() {
         require(slug.isNotBlank() && first >= 1 && last >= first && chapter in first..last) { "Phạm vi chương không hợp lệ" }

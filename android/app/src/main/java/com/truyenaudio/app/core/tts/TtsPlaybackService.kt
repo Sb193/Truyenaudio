@@ -34,7 +34,9 @@ class TtsPlaybackService : Service() {
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val main = Handler(Looper.getMainLooper())
-    private val repository get() = (application as TruyenAudioApp).repository
+    private val app get() = application as TruyenAudioApp
+    private val repository get() = app.repository
+    private var sessionWatch: Job? = null
     private var sessionVersion = 0
     private lateinit var media: MediaSessionCompat
     private lateinit var audio: AudioManager
@@ -70,7 +72,6 @@ class TtsPlaybackService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        sessionVersion = repository.sessionVersion.value
         audio = getSystemService(AudioManager::class.java)
         focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN).setAudioAttributes(attributes)
             .setOnAudioFocusChangeListener({ change ->
@@ -87,7 +88,6 @@ class TtsPlaybackService : Service() {
             isActive = true
         }
         ContextCompat.registerReceiver(this, noisy, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY), ContextCompat.RECEIVER_NOT_EXPORTED)
-        scope.launch { repository.sessionVersion.drop(1).collect { stopReading(save = false) } }
     }
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -98,7 +98,7 @@ class TtsPlaybackService : Service() {
                     promote()
                     val newPlan = intent.getStringExtra(PLAN)?.let { Gson().fromJson(it, ListenPlan::class.java) }
                     if (newPlan != null) start(newPlan) else if (plan == null) {
-                        repository.store.progress()?.plan?.let { start(it) } ?: fail("Chưa có tiến độ để tiếp tục")
+                        app.localLibrary.progress()?.plan?.let { start(it) } ?: fail("Chưa có tiến độ để tiếp tục")
                     } else resume()
                 }
                 PAUSE -> pause()
@@ -114,7 +114,14 @@ class TtsPlaybackService : Service() {
 
     private fun start(value: ListenPlan) {
         value.validate()
-        if (!repository.store.cookies.hasActiveSession()) { repository.clearSession(); fail("Vui lòng đăng nhập lại"); return }
+        sessionWatch?.cancel()
+        if (value.source == ContentSource.SERVER) {
+            if (!repository.store.cookies.hasActiveSession()) { repository.clearSession(); fail("Vui lòng đăng nhập lại để nghe từ server"); return }
+            sessionVersion = repository.sessionVersion.value
+            sessionWatch = scope.launch { repository.sessionVersion.drop(1).collect {
+                if (plan?.source == ContentSource.SERVER) stopReading(save = false)
+            } }
+        }
         invalidate()
         prefetch?.cancel(); prefetch = null
         plan = value
@@ -160,6 +167,9 @@ class TtsPlaybackService : Service() {
             fail("Giọng đã chọn không còn trên máy. Hãy mở cấu hình nghe và chọn lại."); return false
         }
         if (voice != null) {
+            if (voice.isNetworkConnectionRequired && current.source == ContentSource.LOCAL) {
+                fail("Chế độ trên máy cần giọng offline. Hãy tải giọng tiếng Việt trong cài đặt TTS."); return false
+            }
             if (voice.isNetworkConnectionRequired && !current.networkVoiceAccepted) {
                 fail("Giọng này cần mạng. Hãy xác nhận trong cấu hình nghe trước khi sử dụng."); return false
             }
@@ -187,12 +197,12 @@ class TtsPlaybackService : Service() {
         loadJob = scope.launch {
             try {
                 if (chapterNumbers.isEmpty()) {
-                    chapterNumbers = repository.detail(current.slug).chapters.map { it.number }.sorted()
+                    chapterNumbers = app.content.source(current.source).detail(current.slug).chapters.map { it.number }.sorted()
                     require(current.first in chapterNumbers && current.last in chapterNumbers && number in chapterNumbers) { "Phạm vi chương không còn trong mục lục" }
                 }
-                val content = prepared?.await()?.getOrNull() ?: repository.chapter(current.slug, number)
+                val content = prepared?.await()?.getOrNull() ?: app.content.source(current.source).chapter(current.slug, number)
                 ensureActive()
-                if (request != requestGeneration || sessionVersion != repository.sessionVersion.value) return@launch
+                if (request != requestGeneration || (current.source == ContentSource.SERVER && sessionVersion != repository.sessionVersion.value)) return@launch
                 require(content.number == number && content.slug == current.slug) { "Máy chủ trả về chương không khớp" }
                 chapter = content
                 val split = withContext(Dispatchers.Default) { TextChunker.split(content.content, TextToSpeech.getMaxSpeechInputLength()) }
@@ -207,7 +217,7 @@ class TtsPlaybackService : Service() {
                 if (next != null) {
                     prefetchNumber = next
                     prefetch = scope.async {
-                        try { Result.success(repository.chapter(current.slug, next)) }
+                        try { Result.success(app.content.source(current.source).chapter(current.slug, next)) }
                         catch (cancel: CancellationException) { throw cancel }
                         catch (error: Exception) { Result.failure(error) }
                     }
@@ -278,7 +288,7 @@ class TtsPlaybackService : Service() {
     private fun resume() {
         if (wantPlay) return
         if (plan == null) {
-            repository.store.progress()?.plan?.let { start(it) } ?: stopReading()
+            app.localLibrary.progress()?.plan?.let { start(it) } ?: stopReading()
             return
         }
         wantPlay = true
@@ -308,10 +318,10 @@ class TtsPlaybackService : Service() {
     }
     private fun saveProgress() {
         val current = plan ?: return
-        if (sessionVersion == repository.sessionVersion.value) {
-            repository.saveProgress(sessionVersion, Progress(current, chapter?.title.orEmpty()))
-            lastSavedAt = SystemClock.elapsedRealtime()
-        }
+        if (chapter == null) return
+        if (current.source == ContentSource.LOCAL) app.localLibrary.saveProgress(Progress(current, chapter?.title.orEmpty()))
+        else if (sessionVersion == repository.sessionVersion.value) repository.saveProgress(sessionVersion, Progress(current, chapter?.title.orEmpty()))
+        lastSavedAt = SystemClock.elapsedRealtime()
     }
     private fun stopReading(save: Boolean = true) {
         if (save) saveProgress()
