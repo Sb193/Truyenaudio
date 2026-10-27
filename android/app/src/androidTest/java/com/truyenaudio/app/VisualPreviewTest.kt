@@ -13,6 +13,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.truyenaudio.app.data.*
 import com.truyenaudio.app.ui.*
 import java.io.File
+import java.io.FileInputStream
+import androidx.core.view.WindowCompat
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -48,7 +50,12 @@ class VisualPreviewTest {
     private fun capture(name: String, dark: Boolean, content: @Composable () -> Unit) {
         val scenario = ActivityScenario.launch(VisualPreviewActivity::class.java)
         try {
-            scenario.onActivity { activity -> activity.setContent {
+            scenario.onActivity { activity ->
+                WindowCompat.getInsetsController(activity.window, activity.window.decorView).apply {
+                    isAppearanceLightStatusBars = !dark
+                    isAppearanceLightNavigationBars = !dark
+                }
+                activity.setContent {
                 TruyenAudioTheme(dark) {
                     Surface(Modifier.fillMaxSize()) {
                         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -65,7 +72,14 @@ class VisualPreviewTest {
             SystemClock.sleep(1200)
             val image = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
             val directory = File(instrumentation.targetContext.getExternalFilesDir(null), "ui-previews").apply { mkdirs() }
-            File(directory, "$name.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            val output = File(directory, "$name.png")
+            output.outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            // AGP uninstalls the target after connected tests; copy previews to shell-owned shared storage first.
+            listOf("mkdir -p /sdcard/Download/truyenaudio-previews", "cp ${output.absolutePath} /sdcard/Download/truyenaudio-previews/$name.png").forEach { command ->
+                instrumentation.uiAutomation.executeShellCommand(command).use { descriptor ->
+                    FileInputStream(descriptor.fileDescriptor).use { it.readBytes() }
+                }
+            }
             image.recycle()
         } finally { scenario.close() }
     }

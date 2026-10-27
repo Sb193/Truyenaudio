@@ -93,7 +93,7 @@ jobs:
             chmod +x android/gradlew
             cd android && ./gradlew connectedDebugAndroidTest --no-daemon --stacktrace
             mkdir -p ui-previews
-            adb pull /sdcard/Android/data/com.truyenaudio.app.debug/files/ui-previews ui-previews
+            adb pull /sdcard/Download/truyenaudio-previews ui-previews
       - name: Upload native UI screenshots
         if: always()
         uses: actions/upload-artifact@v4
